@@ -1,17 +1,21 @@
 import os
-from flask import Flask, request
+import re
+from flask import Flask, request, make_response, jsonify
 from flask_restful import Resource, Api
 from supabase import create_client
 from dotenv import load_dotenv
+from flask_cors import CORS
 
 app = Flask(__name__)
 api = Api(app)
+CORS(app, origins=[re.compile(r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$")], supports_credentials=True)
+app.url_map.strict_slashes = False
 load_dotenv()
 client = create_client(os.environ.get("SUPABASE_URL"), os.environ.get("SUPABASE_PUBLISHABLE_KEY"))
 
 
 def logged_in(table_name, session_token):
-    if table_name == "student":
+    if table_name == "students":
         response = client.table(table_name).select("id, name, university_id, created_at, email, gender, nationality, date_of_birth, phone_number, national_id, department:departments!department_id(*)").eq("session_token", session_token).execute()
     else:
         response = client.table(table_name).select("id, name, created_at, email, gender, phone_number, department:departments!department_id(*)").eq("session_token", session_token).execute()
@@ -65,54 +69,58 @@ def get_course(course_id):
 
 
 class Login(Resource):
-    def post(self, type):
-        university_id = request.values.get("university_id")
-        email = request.values.get("email")
-        password = request.values.get("password")
+    def post(self, role):
+        requestBody = request.get_json(silent=True) or request.values
+        university_id = int(requestBody.get("university_id") or 0)
+        email = str(requestBody.get("email") or "")
+        password = str(requestBody.get("password") or "")
         try:
-            if (type == "student"):
+            if (role == "student"):
                 response = client.table("students").select("*").eq("university_id", university_id).execute()
-            elif (type == "staff"):
+            elif (role == "staff"):
                 response = client.table("staff").select("*").eq("email", email).execute()
-            elif (type == "admin"):
+            elif (role == "admin"):
                 response = client.table("admins").select("*").eq("email", email).execute()
             else:
-                return {"message": f"Invalid type \"{type}\""}, 400
+                return make_response(jsonify({"message": f"Invalid type \"{role}\""}), 400)
             
             if response.data:
                 if (password == response.data[0]["password"]):
-                    return {"session_token": response.data[0]["session_token"]}, 200
-                return {"message": "Username or password is incorrect."}, 400
+                    token = make_response(jsonify({"message": "session_token cookie is sent successfully."}), 200)
+                    token.set_cookie("session_token", response.data[0]["session_token"])
+                    return token
+                return make_response(jsonify({"message": "Username or password is incorrect."}), 400)
             else:
-                return {"message": "Username or password is incorrect."}, 400
+                return make_response(jsonify({"message": "Username or password is incorrect."}), 400)
         except:
-            return {"message": "Error, maybe credentials params are not provided."}, 400
+            return make_response(jsonify({"message": "Error, maybe credentials params are not provided."}), 400)
 
 class GetStudentData(Resource):
     def post(self):
         is_logged_in = logged_in("students", request.cookies["session_token"])
         if is_logged_in["status"]:
-            return is_logged_in["data"], 200
-        return {"message": "Please log in first."}, 400
+            return make_response(jsonify(is_logged_in["data"]), 200)
+        return make_response(jsonify({"message": "Please log in first."}), 400)
 
 class GetEnrollments(Resource):
     def post(self):
         is_logged_in = logged_in("students", request.cookies["session_token"])
         if is_logged_in["status"]:
-            return get_enrolled_courses(is_logged_in["data"]["id"]), 200
-        return {"message": "Please log in first."}, 400
+            return make_response(jsonify(get_enrolled_courses(is_logged_in["data"]["id"])), 200)
+        return make_response(jsonify({"message": "Please log in first."}), 400)
 
 class GetRegistrableCourses(Resource):
     def post(self):
         is_logged_in = logged_in("students", request.cookies["session_token"])
         if is_logged_in["status"]:
             return get_registrable_courses(is_logged_in["data"]["id"]), 200
-        return {"message": "Please log in first."}, 400
+        return make_response(jsonify({"message": "Please log in first."}), 400)
 
 class EditEnrolledCourses(Resource):
     def post(self):
-        course_id = int(request.values.get("course_id"))
-        section = int(request.values.get("section"))
+        requestBody = request.get_json(silent=True) or request.values
+        course_id = int(requestBody.get("course_id"))
+        section = int(requestBody.get("section"))
         try:
             is_logged_in = logged_in("students", request.cookies["session_token"])
             if is_logged_in["status"]:
@@ -133,18 +141,19 @@ class EditEnrolledCourses(Resource):
                             "student_id": is_logged_in["data"]["id"],
                             "section": section
                         }).execute()
-                        return {"message": "Enrolled successfully"}, 200
+                        return make_response(jsonify({"message": "Enrolled successfully"}), 200)
                     except:
-                        return {"message": "Error, couldn't register the course."}, 500
+                        return make_response(jsonify({"message": "Error, couldn't register the course."}), 500)
                 else:
-                    return {"message": "Course is already registered or not registrable"}, 400
-            return {"message": "Please log in first."}, 400
+                    return make_response(jsonify({"message": "Course is already registered or not registrable"}), 400)
+            return make_response(jsonify({"message": "Please log in first."}), 400)
         except:
-            return {"message": "Error, maybe course_id and section params are not provided."}, 400
+            return make_response(jsonify({"message": "Error, maybe course_id and section params are not provided."}), 400)
     
     def delete(self):
-        course_id = int(request.values.get("course_id"))
-        section = int(request.values.get("section"))
+        requestBody = request.get_json(silent=True) or request.values
+        course_id = int(requestBody.get("course_id"))
+        section = int(requestBody.get("section"))
         is_logged_in = logged_in("students", request.cookies["session_token"])
         if is_logged_in["status"]:
             enrolled_courses = get_enrolled_courses(is_logged_in["data"]["id"])
@@ -158,12 +167,12 @@ class EditEnrolledCourses(Resource):
                         "course_id": course_id,
                         "section": section
                     }).execute()
-                    return {"message": "Enrollment deleted successfully"}, 200
+                    return make_response(jsonify({"message": "Enrollment deleted successfully"}), 200)
                 except:
-                    return {"message": "Error, couldn't delete the enrollment."}, 500
+                    return make_response(jsonify({"message": "Error, couldn't delete the enrollment."}), 500)
             else:
-                return {"message": "Course not registered or not registrable"}, 400
-        return {"message": "Please log in first."}, 400
+                return make_response(jsonify({"message": "Course not registered or not registrable"}), 400)
+        return make_response(jsonify({"message": "Please log in first."}), 400)
 
 class GetAssignedCourses(Resource):
     def post(self):
@@ -173,15 +182,15 @@ class GetAssignedCourses(Resource):
             for course in courses.data:
                 enrolled_students = client.table("enrollments").select("section, grade, enrollment_date, student:students!student_id(id, name, university_id, department:departments!department_id(code, name), email, gender, nationality, phone_number)").eq("course_id", course["id"]).execute()
                 course["enrolled_students"] = enrolled_students.data
-            return courses.data
-        return {"message": "Please log in first."}, 400
+            return make_response(jsonify(courses.data), 200)
+        return make_response(jsonify({"message": "Please log in first."}), 400)
 
-api.add_resource(Login, "/login/<type>")
+api.add_resource(Login, "/login/<role>")
 api.add_resource(GetStudentData, "/student/getData")
 api.add_resource(GetEnrollments, "/student/getEnrollments")
 api.add_resource(GetRegistrableCourses, "/student/getRegistrableCourses")
-api.add_resource(EditEnrolledCourses, "/student/editEnrolledCourses/")
-api.add_resource(GetAssignedCourses, "/staff/getAssignedCourses/")
+api.add_resource(EditEnrolledCourses, "/student/editEnrolledCourses")
+api.add_resource(GetAssignedCourses, "/staff/getAssignedCourses")
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, port=5000)
