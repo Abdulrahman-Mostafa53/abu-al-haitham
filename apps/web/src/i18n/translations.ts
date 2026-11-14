@@ -1,4 +1,7 @@
+import { portalAr, portalEn } from "./portal";
+
 const en = {
+  ...portalEn,
   brand: "Abu Al Haitham",
   uni: "Alexandria University · Engineering",
   heroA: "Where knowledge",
@@ -43,6 +46,7 @@ export type Dict = typeof en;
 export type Lang = "en" | "ar";
 
 const ar: Dict = {
+  ...portalAr,
   brand: "أبو الهيثم",
   uni: "جامعة الإسكندرية · كلية الهندسة",
   heroA: "حيث يلتقي العلم",

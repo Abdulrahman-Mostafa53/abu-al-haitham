@@ -1,11 +1,16 @@
+import { Navigate } from "react-router-dom";
 import Toolbar from "../components/layout/Toolbar";
 import Toast from "../components/ui/Toast";
 import { useToast } from "../hooks/useToast";
 import AuthCard from "../features/auth/components/AuthCard";
 import HeroSection from "../features/auth/components/HeroSection";
+import { useAuth } from "../features/auth/context";
 
 export default function AuthPage() {
   const { toast, show } = useToast();
+  const { role } = useAuth();
+
+  if (role) return <Navigate to="/profile" replace />;
 
   return (
     <>

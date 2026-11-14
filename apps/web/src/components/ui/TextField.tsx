@@ -7,7 +7,7 @@ interface TextFieldProps extends InputHTMLAttributes<HTMLInputElement> {
   trailing?: ReactNode;
 }
 
-export default function TextField({ id, label, trailing, className = "", ...rest }: TextFieldProps) {
+export default function TextField({ id, label, trailing, className = "", name, ...rest }: TextFieldProps) {
   return (
     <div className="mb-4">
       <label htmlFor={id} className="block text-[.82rem] font-bold text-mute">
@@ -16,6 +16,7 @@ export default function TextField({ id, label, trailing, className = "", ...rest
       <div className="relative">
         <input
           id={id}
+          name={name}
           className={`h-11 w-full border-0 border-b-[1.5px] border-line bg-transparent px-0.5 text-base outline-none transition focus:border-gold ${
             trailing ? "pe-12" : ""
           } ${className}`}

@@ -1,9 +1,9 @@
 @import "tailwindcss";
 
-/* optional: lets you write dark:... utilities if you ever need them */
+/* lets you write dark:... utilities (driven by data-theme on <html>) */
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
-/* ---------- Theme tokens (values change with data-theme) ---------- */
+/* ---------- Theme tokens (values change with data-theme / lang) ---------- */
 :root {
   --bg: #f6f1e7;
   --card: #fffdf8;
@@ -11,6 +11,9 @@
   --mute: #5d7378;
   --line: #e4dccb;
   --field: #ffffff;
+  --goldD: #b98a1c;
+  --fb: "Cairo", system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif;
+  --fh: "Amiri", "Cairo", serif;
   color-scheme: light;
 }
 :root[data-theme="dark"] {
@@ -20,15 +23,22 @@
   --mute: #9db2b5;
   --line: #244047;
   --field: #0d1c20;
+  --goldD: #e5b94f;
   color-scheme: dark;
 }
+/* Arabic gets real UI Arabic faces (Plex Arabic body, Kufi headings) */
+:root[lang="ar"] {
+  --fb: "IBM Plex Sans Arabic", "Cairo", system-ui, Tahoma, sans-serif;
+  --fh: "Noto Kufi Arabic", "IBM Plex Sans Arabic", sans-serif;
+}
 
-/* ---------- Tailwind design tokens -> utilities like bg-bg, text-mute, border-line ---------- */
+/* ---------- Tailwind tokens -> utilities like bg-bg, text-mute, border-line ---------- */
 @theme inline {
-  --breakpoint-split: 900px; /* two-column layout starts here -> `split:` prefix */
+  --breakpoint-split: 900px; /* sidebar / two-column layouts */
+  --breakpoint-wide: 1100px; /* profile: info + degree panel side by side */
 
-  --font-sans: "Cairo", system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif;
-  --font-display: "Amiri", "Cairo", serif;
+  --font-sans: var(--fb);
+  --font-display: var(--fh);
 
   --color-bg: var(--bg);
   --color-card: var(--card);
@@ -40,6 +50,11 @@
   --color-teal: #0f8a93;
   --color-teal-deep: #0a5a68;
   --color-gold: #e5b94f;
+  --color-gold-deep: var(--goldD);
+}
+
+@utility bg-brand-gradient {
+  background: linear-gradient(170deg, #139aa1 0%, #0b6a78 55%, #073f50 100%);
 }
 
 @layer base {
