@@ -1,5 +1,0 @@
-{
-  "name": "abh-backend",
-  "version": "0.1.0",
-  "dependencies": ["drogon", "nlohmann-json", "jwt-cpp", "curl", "gtest"]
-}

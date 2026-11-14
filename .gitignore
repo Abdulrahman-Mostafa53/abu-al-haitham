@@ -68,3 +68,5 @@ Desktop.ini
 .idea/
 *.swp
 *.swo
+
+backend/.venv
