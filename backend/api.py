@@ -1,5 +1,6 @@
 import os
 import re
+import json
 from flask import Flask, request, make_response, jsonify
 from flask_restful import Resource, Api
 from supabase import create_client
@@ -25,6 +26,48 @@ def logged_in(table_name, session_token):
 
 def get_course(course_id):
     return client.table("courses").select("*").eq("id", course_id).execute().data[0]
+
+def get_department(department_id):
+    return client.table("departments").select("*").eq("id", department_id).execute().data[0]
+
+def update_department(department_id, field, value):
+    try:
+        client.table("departments").update({
+            str(field): value
+        }).eq("id", int(department_id)).execute()
+        return {"message": "Department data updated successfully."}, 200
+    except:
+        return {"message": "Error, cannot update department data."}, 500
+
+def get_schedule(course_id, section=None):
+    if section:
+        return client.table("schedule").select("*, course:courses!course_id(code, name)").match({
+            "course_id": int(course_id),
+            "section": int(section)
+        }).execute().data
+    return client.table("schedule").select("*, course:courses!course_id(code, name)").eq("course_id", int(course_id)).execute().data
+
+def update_schedule(course_id, section, field, value):
+    try:
+        client.table("schedule").update({
+            str(field): value
+        }).match({
+            "course_id": int(course_id),
+            "section": int(section)
+        }).execute()
+        return {"message": "Schedule updated successfully."}, 200
+    except:
+        return {"message": "Error, cannot update schedule."}, 500
+
+def get_enrollment(student_id, course_id):
+    return client.table("enrollments").select("""
+    grade, section, exam_date, exam_location, exam_seat, enrollment_date,
+    student:students!student_id(id, name, university_id, email),
+    course:courses!course_id(id, code, name, credits)
+    """).match({
+        "student_id": int(student_id),
+        "course_id": int(course_id)
+    }).execute().data[0]
 
 def get_student(student_id):
     return client.table("students").select("id, name, university_id, created_at, email, gender, nationality, date_of_birth, phone_number, national_id, cgpa, level, completed_credits, max_load, department:departments!department_id(*)").eq("id", student_id).execute().data[0]
@@ -330,7 +373,7 @@ class ModifyStudents(Resource):
             else:
                 return make_response(jsonify({"message": "Please log in first."}), 401)
         except:
-            return make_response(jsonify({"message": "Error, could't get student data"}), 500)
+            return make_response(jsonify({"message": "Error, could't add student"}), 500)
     def put(self):
         request_body = request.get_json(silent=True) or request.values
         student_id = int(request_body.get("student_id"))
@@ -351,13 +394,13 @@ class ModifyStudents(Resource):
             is_logged_in = logged_in("admins", request.cookies["session_token"])
             if is_logged_in["status"]:
                 client.table("students").delete().match({
-                    "student_id": student_id,
+                    "id": student_id,
                 }).execute()
                 return make_response(jsonify({"message": "Student deleted successfully."}), 200)
             else:
                 return make_response(jsonify({"message": "Please log in first."}), 401)
         except:
-            return make_response(jsonify({"message": "Error, could't get student data"}), 500)
+            return make_response(jsonify({"message": "Error, could't delete student"}), 500)
 
 class GetAllStudents(Resource):
     def get(self):
@@ -382,7 +425,10 @@ class GetAllStudents(Resource):
         try:
             is_logged_in = logged_in("admins", request.cookies["session_token"])
             if is_logged_in["status"]:
-                all_students = client.table("students").select("id, name, university_id, created_at, email, gender, nationality, date_of_birth, phone_number, national_id, cgpa, level, completed_credits, max_load, department:departments!department_id(*)").match(search).execute()
+                if search:
+                    all_students = client.table("students").select("id, name, university_id, created_at, email, gender, nationality, date_of_birth, phone_number, national_id, cgpa, level, completed_credits, max_load, department:departments!department_id(*)").match(search).execute()
+                else:
+                    all_students = client.table("students").select("id, name, university_id, created_at, email, gender, nationality, date_of_birth, phone_number, national_id, cgpa, level, completed_credits, max_load, department:departments!department_id(*)").execute()
                 return make_response(jsonify(all_students.data), 200)
             else:
                 return make_response(jsonify({"message": "Please log in first."}), 401)
@@ -407,19 +453,21 @@ class ModifyCourses(Resource):
             "code": str(request_body.get("code")),
             "name": str(request_body.get("name")),
             "credits": int(request_body.get("credits")),
-            "prerequisites": request_body.grt("prerequisites"),
+            "prerequisites": json.loads(request_body.get("prerequisites")),
             "professor_id": int(request_body.get("professor_id")),
-            "department_id": int(request_body.get("department_id"))
+            "department_id": int(request_body.get("department_id")),
+            "type": str(request_body.get("type"))
         }
-        try:
-            is_logged_in = logged_in("admins", request.cookies["session_token"])
-            if is_logged_in["status"]:
-                client.table("courses").insert(data).execute()
-                return make_response(jsonify({"message": "Course added successfully."}), 200)
-            else:
-                return make_response(jsonify({"message": "Please log in first."}), 401)
-        except:
-            return make_response(jsonify({"message": "Error, could't get student data"}), 500)
+        print(data["prerequisites"])
+        # try:
+        is_logged_in = logged_in("admins", request.cookies["session_token"])
+        if is_logged_in["status"]:
+            client.table("courses").insert(data).execute()
+            return make_response(jsonify({"message": "Course added successfully."}), 200)
+        else:
+            return make_response(jsonify({"message": "Please log in first."}), 401)
+        # except:
+        #     return make_response(jsonify({"message": "Error, could't add course"}), 500)
     def put(self):
         request_body = request.get_json(silent=True) or request.values
         course_id = int(request_body.get("course_id"))
@@ -455,16 +503,13 @@ class GetAllCourses(Resource):
     def get(self):
         request_body = request.get_json(silent=True) or request.values
         department_id = int(request_body.get("department_id") or 0)
-        if (department_id):
-            search = {
-                "department_id": department_id
-            }
-        else:
-            search = {}
         try:
             is_logged_in = logged_in("admins", request.cookies["session_token"])
             if is_logged_in["status"]:
-                all_courses = client.table("courses").select("*").match(search).execute()
+                if department_id:
+                    all_courses = client.table("courses").select("*").match({"department_id": department_id}).execute()
+                else:
+                    all_courses = client.table("courses").select("*").execute()
                 return make_response(jsonify(all_courses.data), 200)
             else:
                 return make_response(jsonify({"message": "Please log in first."}), 401)
@@ -478,12 +523,12 @@ class ModifyProfessors(Resource):
         try:
             is_logged_in = logged_in("admins", request.cookies["session_token"])
             if is_logged_in["status"]:
-                response = client.table("professors").select("id, name, created_at, email, gender, phone_number, department:departments!department_id(*)").eq("id", professor_id).execute()
+                response = client.table("staff").select("id, name, created_at, email, gender, phone_number, department:departments!department_id(*)").eq("id", professor_id).execute()
                 return make_response(jsonify(response.data[0]), 200)
             else:
                 return make_response(jsonify({"message": "Please log in first."}), 401)
         except:
-            return make_response(jsonify({"message": "Error, could't get student data"}), 500)
+            return make_response(jsonify({"message": "Error, could't get professor data"}), 500)
     def post(self):
         request_body = request.get_json(silent=True) or request.values
         data = {
@@ -497,12 +542,12 @@ class ModifyProfessors(Resource):
         try:
             is_logged_in = logged_in("admins", request.cookies["session_token"])
             if is_logged_in["status"]:
-                client.table("professors").insert(data).execute()
+                client.table("staff").insert(data).execute()
                 return make_response(jsonify({"message": "Professor added successfully."}), 200)
             else:
                 return make_response(jsonify({"message": "Please log in first."}), 401)
         except:
-            return make_response(jsonify({"message": "Error, could't get student data"}), 500)
+            return make_response(jsonify({"message": "Error, could't add professor"}), 500)
     def put(self):
         request_body = request.get_json(silent=True) or request.values
         professor_id = int(request_body.get("professor_id"))
@@ -511,28 +556,28 @@ class ModifyProfessors(Resource):
         try:
             is_logged_in = logged_in("admins", request.cookies["session_token"])
             if is_logged_in["status"]:
-                client.table("professors").update({
+                client.table("staff").update({
                     str(field): value
                 }).eq("id", professor_id).execute()
                 return make_response(jsonify({"message": "Professor data updated successfully."}), 200)
             else:
                 return make_response(jsonify({"message": "Please log in first."}), 401)
         except:
-            return make_response(jsonify({"message": "Error, could't get student data"}), 500)
+            return make_response(jsonify({"message": "Error, could't update professor data"}), 500)
     def delete(self):
         request_body = request.get_json(silent=True) or request.values
         professor_id = int(request_body.get("professor_id"))
         try:
             is_logged_in = logged_in("admins", request.cookies["session_token"])
             if is_logged_in["status"]:
-                client.table("professors").delete().match({
+                client.table("staff").delete().match({
                     "id": professor_id,
                 }).execute()
                 return make_response(jsonify({"message": "Professor deleted successfully."}), 200)
             else:
                 return make_response(jsonify({"message": "Please log in first."}), 401)
         except:
-            return make_response(jsonify({"message": "Error, could't get student data"}), 500)
+            return make_response(jsonify({"message": "Error, could't delete professor"}), 500)
 
 class GetAllProfessors(Resource):
     def get(self):
@@ -547,12 +592,276 @@ class GetAllProfessors(Resource):
         try:
             is_logged_in = logged_in("admins", request.cookies["session_token"])
             if is_logged_in["status"]:
-                all_professors = client.table("professors").select("id, name, created_at, email, gender, phone_number, department:departments!department_id(*)").match(search).execute()
+                if search:
+                    all_professors = client.table("staff").select("id, name, created_at, email, gender, phone_number, department:departments!department_id(*)").match(search).execute()
+                else:
+                    all_professors = client.table("staff").select("id, name, created_at, email, gender, phone_number, department:departments!department_id(*)").execute()
                 return make_response(jsonify(all_professors.data), 200)
             else:
                 return make_response(jsonify({"message": "Please log in first."}), 401)
         except:
-            return make_response(jsonify({"message": "Error, could't get students data"}), 500)
+            return make_response(jsonify({"message": "Error, could't get professors data"}), 500)
+
+class ModifyDepartments(Resource):
+    def get(self):
+        request_body = request.get_json(silent=True) or request.values
+        department_id = int(request_body.get("department_id") or request_body.get("id"))
+        try:
+            is_logged_in = logged_in("admins", request.cookies.get("session_token", ""))
+            if is_logged_in["status"]:
+                return make_response(jsonify(get_department(department_id)), 200)
+            else:
+                return make_response(jsonify({"message": "Please log in first."}), 401)
+        except:
+            return make_response(jsonify({"message": "Error, couldn't get department data"}), 500)
+    def post(self):
+        request_body = request.get_json(silent=True) or request.values
+        data = {
+            "code": str(request_body.get("code")),
+            "name": str(request_body.get("name")),
+            "credit_hours": int(request_body.get("credit_hours"))
+        }
+        try:
+            is_logged_in = logged_in("admins", request.cookies.get("session_token", ""))
+            if is_logged_in["status"]:
+                client.table("departments").insert(data).execute()
+                return make_response(jsonify({"message": "Department added successfully."}), 200)
+            else:
+                return make_response(jsonify({"message": "Please log in first."}), 401)
+        except:
+            return make_response(jsonify({"message": "Error, couldn't add department"}), 500)
+    def put(self):
+        request_body = request.get_json(silent=True) or request.values
+        department_id = int(request_body.get("department_id") or request_body.get("id"))
+        field = str(request_body.get("field"))
+        value = request_body.get("value")
+        try:
+            is_logged_in = logged_in("admins", request.cookies.get("session_token", ""))
+            if is_logged_in["status"]:
+                return make_response(jsonify(update_department(department_id, field, value)), 200)
+            else:
+                return make_response(jsonify({"message": "Please log in first."}), 401)
+        except:
+            return make_response(jsonify({"message": "Error, couldn't update department data"}), 500)
+    def delete(self):
+        request_body = request.get_json(silent=True) or request.values
+        department_id = int(request_body.get("department_id") or request_body.get("id"))
+        try:
+            is_logged_in = logged_in("admins", request.cookies.get("session_token", ""))
+            if is_logged_in["status"]:
+                client.table("departments").delete().match({
+                    "id": department_id
+                }).execute()
+                return make_response(jsonify({"message": "Department deleted successfully."}), 200)
+            else:
+                return make_response(jsonify({"message": "Please log in first."}), 401)
+        except:
+            return make_response(jsonify({"message": "Error, couldn't delete department"}), 500)
+
+class GetAllDepartments(Resource):
+    def get(self):
+        try:
+            is_logged_in = logged_in("admins", request.cookies.get("session_token", ""))
+            if is_logged_in["status"]:
+                all_departments = client.table("departments").select("*").execute()
+                return make_response(jsonify(all_departments.data), 200)
+            else:
+                return make_response(jsonify({"message": "Please log in first."}), 401)
+        except:
+            return make_response(jsonify({"message": "Error, couldn't get departments data"}), 500)
+
+class ModifySchedule(Resource):
+    def get(self):
+        request_body = request.get_json(silent=True) or request.values
+        course_id = int(request_body.get("course_id"))
+        section = request_body.get("section")
+        try:
+            is_logged_in = logged_in("admins", request.cookies.get("session_token", ""))
+            if is_logged_in["status"]:
+                return make_response(jsonify(get_schedule(course_id, section)), 200)
+            else:
+                return make_response(jsonify({"message": "Please log in first."}), 401)
+        except:
+            return make_response(jsonify({"message": "Error, couldn't get schedule data"}), 500)
+    def post(self):
+        request_body = request.get_json(silent=True) or request.values
+        data = {
+            "course_id": int(request_body.get("course_id")),
+            "section": int(request_body.get("section")),
+            "day": str(request_body.get("day")),
+            "time_period": int(request_body.get("time_period")),
+            "place": str(request_body.get("place"))
+        }
+        try:
+            is_logged_in = logged_in("admins", request.cookies.get("session_token", ""))
+            if is_logged_in["status"]:
+                client.table("schedule").insert(data).execute()
+                return make_response(jsonify({"message": "Schedule added successfully."}), 200)
+            else:
+                return make_response(jsonify({"message": "Please log in first."}), 401)
+        except:
+            return make_response(jsonify({"message": "Error, couldn't add schedule"}), 500)
+    def put(self):
+        request_body = request.get_json(silent=True) or request.values
+        course_id = int(request_body.get("course_id"))
+        section = int(request_body.get("section"))
+        field = str(request_body.get("field"))
+        value = request_body.get("value")
+        try:
+            is_logged_in = logged_in("admins", request.cookies.get("session_token", ""))
+            if is_logged_in["status"]:
+                return make_response(jsonify(update_schedule(course_id, section, field, value)), 200)
+            else:
+                return make_response(jsonify({"message": "Please log in first."}), 401)
+        except:
+            return make_response(jsonify({"message": "Error, couldn't update schedule"}), 500)
+    def delete(self):
+        request_body = request.get_json(silent=True) or request.values
+        course_id = int(request_body.get("course_id"))
+        section = request_body.get("section")
+        try:
+            is_logged_in = logged_in("admins", request.cookies.get("session_token", ""))
+            if is_logged_in["status"]:
+                match_query = {"course_id": course_id}
+                if section is not None:
+                    match_query["section"] = int(section)
+                client.table("schedule").delete().match(match_query).execute()
+                return make_response(jsonify({"message": "Schedule deleted successfully."}), 200)
+            else:
+                return make_response(jsonify({"message": "Please log in first."}), 401)
+        except:
+            return make_response(jsonify({"message": "Error, couldn't delete schedule"}), 500)
+
+class GetAllSchedules(Resource):
+    def get(self):
+        request_body = request.get_json(silent=True) or request.values
+        course_id = int(request_body.get("course_id") or 0)
+        day = request_body.get("day")
+        section = int(request_body.get("section") or 0)
+        search = {}
+        if course_id:
+            search["course_id"] = course_id
+        if day:
+            search["day"] = str(day)
+        if section:
+            search["section"] = section
+        try:
+            is_logged_in = logged_in("admins", request.cookies.get("session_token", ""))
+            if is_logged_in["status"]:
+                if search:
+                    all_schedules = client.table("schedule").select("*, course:courses!course_id(id, code, name)").match(search).execute()
+                else:
+                    all_schedules = client.table("schedule").select("*, course:courses!course_id(id, code, name)").execute()
+                return make_response(jsonify(all_schedules.data), 200)
+            else:
+                return make_response(jsonify({"message": "Please log in first."}), 401)
+        except:
+            return make_response(jsonify({"message": "Error, couldn't get schedules data"}), 500)
+
+class ModifyEnrollments(Resource):
+    def get(self):
+        request_body = request.get_json(silent=True) or request.values
+        student_id = int(request_body.get("student_id"))
+        course_id = int(request_body.get("course_id"))
+        try:
+            is_logged_in = logged_in("admins", request.cookies.get("session_token", ""))
+            if is_logged_in["status"]:
+                return make_response(jsonify(get_enrollment(student_id, course_id)), 200)
+            else:
+                return make_response(jsonify({"message": "Please log in first."}), 401)
+        except:
+            return make_response(jsonify({"message": "Error, couldn't get enrollment data"}), 500)
+    def post(self):
+        request_body = request.get_json(silent=True) or request.values
+        student_id = int(request_body.get("student_id"))
+        course_id = int(request_body.get("course_id"))
+        data = {
+            "student_id": student_id,
+            "course_id": course_id,
+            "section": int(request_body.get("section") or 1)
+        }
+        if request_body.get("grade") is not None:
+            data["grade"] = str(request_body.get("grade"))
+        if request_body.get("exam_date") is not None:
+            data["exam_date"] = str(request_body.get("exam_date"))
+        if request_body.get("exam_location") is not None:
+            data["exam_location"] = str(request_body.get("exam_location"))
+        if request_body.get("exam_seat") is not None:
+            data["exam_seat"] = int(request_body.get("exam_seat"))
+        if request_body.get("enrollment_date") is not None:
+            data["enrollment_date"] = str(request_body.get("enrollment_date"))
+        try:
+            is_logged_in = logged_in("admins", request.cookies.get("session_token", ""))
+            if is_logged_in["status"]:
+                client.table("enrollments").insert(data).execute()
+                update_student_progress(student_id)
+                return make_response(jsonify({"message": "Enrollment added successfully."}), 200)
+            else:
+                return make_response(jsonify({"message": "Please log in first."}), 401)
+        except:
+            return make_response(jsonify({"message": "Error, couldn't add enrollment"}), 500)
+    def put(self):
+        request_body = request.get_json(silent=True) or request.values
+        student_id = int(request_body.get("student_id"))
+        course_id = int(request_body.get("course_id"))
+        field = str(request_body.get("field"))
+        value = request_body.get("value")
+        try:
+            is_logged_in = logged_in("admins", request.cookies.get("session_token", ""))
+            if is_logged_in["status"]:
+                response, status_code = update_enrollment(student_id, course_id, field, value)
+                update_student_progress(student_id)
+                return make_response(jsonify(response), status_code)
+            else:
+                return make_response(jsonify({"message": "Please log in first."}), 401)
+        except:
+            return make_response(jsonify({"message": "Error, couldn't update enrollment"}), 500)
+    def delete(self):
+        request_body = request.get_json(silent=True) or request.values
+        student_id = int(request_body.get("student_id"))
+        course_id = int(request_body.get("course_id"))
+        section = request_body.get("section")
+        try:
+            is_logged_in = logged_in("admins", request.cookies.get("session_token", ""))
+            if is_logged_in["status"]:
+                match_query = {
+                    "student_id": student_id,
+                    "course_id": course_id
+                }
+                if section is not None:
+                    match_query["section"] = int(section)
+                client.table("enrollments").delete().match(match_query).execute()
+                update_student_progress(student_id)
+                return make_response(jsonify({"message": "Enrollment deleted successfully."}), 200)
+            else:
+                return make_response(jsonify({"message": "Please log in first."}), 401)
+        except:
+            return make_response(jsonify({"message": "Error, couldn't delete enrollment"}), 500)
+
+class GetAllEnrollments(Resource):
+    def get(self):
+        request_body = request.get_json(silent=True) or request.values
+        student_id = int(request_body.get("student_id") or 0)
+        try:
+            is_logged_in = logged_in("admins", request.cookies.get("session_token", ""))
+            if is_logged_in["status"]:
+                if student_id:
+                    all_enrollments = client.table("enrollments").select("""
+                        grade, section, exam_date, exam_location, exam_seat, enrollment_date,
+                        student:students!student_id(id, name, university_id, email),
+                        course:courses!course_id(id, code, name, credits)
+                    """).eq("student_id", student_id).execute()
+                else:
+                    all_enrollments = client.table("enrollments").select("""
+                        grade, section, exam_date, exam_location, exam_seat, enrollment_date,
+                        student:students!student_id(id, name, university_id, email),
+                        course:courses!course_id(id, code, name, credits)
+                    """).execute()
+                return make_response(jsonify(all_enrollments.data), 200)
+            else:
+                return make_response(jsonify({"message": "Please log in first."}), 401)
+        except:
+            return make_response(jsonify({"message": "Error, couldn't get enrollments data"}), 500)
 
 
 api.add_resource(Login, "/login/<role>")
@@ -568,6 +877,12 @@ api.add_resource(ModifyCourses, "/admin/modifyCourses")
 api.add_resource(GetAllCourses, "/admin/getAllCourses")
 api.add_resource(ModifyProfessors, "/admin/modifyProfessors")
 api.add_resource(GetAllProfessors, "/admin/getAllProfessors")
+api.add_resource(ModifyDepartments, "/admin/modifyDepartments")
+api.add_resource(GetAllDepartments, "/admin/getAllDepartments")
+api.add_resource(ModifySchedule, "/admin/modifySchedule")
+api.add_resource(GetAllSchedules, "/admin/getAllSchedules")
+api.add_resource(ModifyEnrollments, "/admin/modifyEnrollments")
+api.add_resource(GetAllEnrollments, "/admin/getAllEnrollments")
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
